@@ -1,0 +1,514 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Apr 22 22:13:41 2026
+
+@author: k4927
+"""
+
+# Google Colab GPU Setting
+!nvidia-smi
+
+# GoogleDrive Mount
+from google.colab import drive
+drive.mount('/content/drive')
+
+# Ask YOLOv8 Function 및 Tools 
+
+!pip install ultralytics
+!pip install roboflow
+
+from IPython import display
+display.clear_output()
+import ultralytics
+ultralytics.checks()
+from ultralytics import YOLO
+from IPython.display import display, Image
+
+# bring my dataset
+import shutil
+shutil.copytree("/content/drive/MyDrive/WFdata_Boar,Deer(2208_2212)/Total_Test_120", "/content/Test_dataset_120") # Test dataset(Roedeer : 20 imgz | Wildboar : 20 imgz | Waterdeer : 20 imgz | Badger : 20 imgz | Racoondog : 20 imgz | Background : 20 imgz)
+
+
+# Bounding Box Dataset (Original(No augmentation), Auto-Orient)
+from roboflow import Roboflow
+rf = Roboflow(api_key="MY_API_KEY")
+project = rf.workspace("yolo-v8-tutorial").project("boundingbox_species5_200")
+dataset = project.version(2).download("yolov8")
+
+# Bounding Box Dataset (Horizonal Flip(Data augmentation), Auto-Orient)
+from roboflow import Roboflow
+rf = Roboflow(api_key="MY_API_KEY")
+project = rf.workspace("yolo-v8-tutorial").project("boundingbox_species5_200")
+dataset = project.version(3).download("yolov8")
+
+# Polygon Dataset (Original(No augmentation), Auto-Orient)
+
+from roboflow import Roboflow
+rf = Roboflow(api_key="MY_API_KEY")
+project = rf.workspace("yolo-v8-tutorial").project("speicies5_Merge")
+dataset = project.version(1).download("yolov8")
+
+# Polygon Dataset (Horizonal Flip(Data augmentation), Auto-Orient)
+from roboflow import Roboflow
+rf = Roboflow(api_key="MY_API_KEY")
+project = rf.workspace("yolo-v8-tutorial").project("speicies5_Merge")
+dataset = project.version(10).download("yolov8")
+
+# Dataset move
+
+import os
+os.mkdir("datasets")
+!mv /content/boundingbox_species5_200-2 /content/datasets
+!mv /content/boundingbox_species5_200-3 /content/datasets
+!mv /content/speicies5_Merge-1 /content/datasets
+!mv /content/speicies5_Merge-10 /content/datasets
+
+# Data Train
+# Default setting Bounding box - Original
+%cd {HOME}
+!yolo task=detect mode=train model=/content/yolov8x.pt data=/content/datasets/boundingbox_species5_200-2/data.yaml epochs=300 imgsz=640 plots=True
+# Default setting Bounding box - Flip
+%cd {HOME}
+!yolo task=detect mode=train model=/content/yolov8x.pt data=/content/datasets/boundingbox_species5_200-3/data.yaml epochs=300 imgsz=640 plots=True
+# Default setting Polygon - Original
+%cd {HOME}
+!yolo task=detect mode=train model=/content/yolov8x.pt data=/content/datasets/speicies5_Merge-1/data.yaml epochs=300 imgsz=640 plots=True
+# Default setting Polygon - Flip
+%cd {HOME}
+!yolo task=detect mode=train model=/content/yolov8x.pt data=/content/datasets/speicies5_Merge-10/data.yaml epochs=300 imgsz=640 plots=True
+
+# Data Validation
+# Bounding box Original(Model-A)
+%cd {HOME}
+!yolo task=detect mode=val model=/content/Validation_factor/Localization/Localization_v8x_Boundingbox/weights/best.pt data=/content/datasets/Boundingbox_species5_200-2/data.yaml
+# Bounding box Extension(Model-B)
+%cd {HOME}
+!yolo task=detect mode=val model=/content/Validation_factor/Localization/Flip_Boundingbox_v8x/weights/best.pt data=/content/datasets/Boundingbox_species5_200-3/data.yaml
+# Polygon Original(Model-C)
+%cd {HOME}
+!yolo task=detect mode=val model=/content/Validation_factor/Localization/Localization_v8x_Polygon/weights/best.pt data=/content/datasets/speicies5_Merge-1/data.yaml
+# Polygon Extension(Model-D)
+%cd {HOME}
+!yolo task=detect mode=val model=/content/Validation_factor/Localization/Flip_Polygon_v8x/weights/best.pt data=/content/datasets/speicies5_Merge-10/data.yaml
+
+# Model-C test
+# Data test (Polygon - Original)
+import pandas as pd
+%cd {HOME}
+Eachs = []
+Each = !yolo task=detect mode=predict model=/content/runs/detect/train3/weights/best.pt conf=0.571 source=/content/Test_dataset_120 save=True # iou = 0.7
+
+# Test results
+for i in range(len(Each)):
+  Eachs.append(Each[i])
+
+df=pd.DataFrame(Eachs)
+df.to_csv("/content/drive/MyDrive/WFresult_Boar,Deer(2208_2212)/Results/Poly_Ori.csv")
+
+# Comparison Model-C and SpeciesNet using Test dataset
+
+!pip -q install -U kagglehub speciesnet
+
+import os
+
+os.environ["KAGGLEHUB_CACHE"] = "/content/kagglehub_cache"
+os.makedirs("/content/kagglehub_cache", exist_ok=True)
+os.makedirs("/content/output", exist_ok=True)
+
+print("KAGGLEHUB_CACHE =", os.environ["KAGGLEHUB_CACHE"])
+
+import kagglehub
+
+MODEL_PATH = kagglehub.model_download(
+    "google/speciesnet/pyTorch/v4.0.2a/1",
+    output_dir="/content/speciesnet_models",
+    force_download=True
+)
+
+print("MODEL_PATH =", MODEL_PATH)
+
+import shutil
+shutil.copytree("/content/drive/MyDrive/WFdata_Boar,Deer(2208_2212)/Test_120","/content/Test120")
+
+image_folder = "/content/Test120"
+output_json = "/content/output/speciesnet_output.json"
+
+import os
+print("image exists:", os.path.exists(image_folder))
+print("output dir exists:", os.path.exists("/content/output"))
+
+# Run SpeciesNet
+!python -m speciesnet.scripts.run_model \
+  --model "$MODEL_PATH" \
+  --folders "$image_folder" \
+  --predictions_json "$output_json" \
+  --country KOR
+
+# SpeciesNet prediction resutls
+import json
+import os
+import pandas as pd
+from sklearn.metrics import confusion_matrix, classification_report
+
+json_path = "/content/output/speciesnet_output.json"
+
+with open(json_path, "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+target_labels = ["badger", "wildboar", "raccoon", "roedeer", "waterdeer"]
+
+def get_true_label(filepath):
+    name = os.path.basename(filepath).lower()
+    if "__bad__" in name:
+        return "badger"
+    elif "__wild__" in name:
+        return "wildboar"
+    elif "__raccoon__" in name:
+        return "raccoon"
+    elif "__roe__" in name:
+        return "roedeer"
+    elif "__water__" in name:
+        return "waterdeer"
+    else:
+        return "other"
+
+def get_pred_label_from_top1(item):
+    top1 = item["classifications"]["classes"][0].lower()
+
+    if "badger" in top1:
+        return "badger"
+    elif "wild boar" in top1:
+        return "wildboar"
+    elif ("raccoon dog" in top1) or ("northern raccoon" in top1):
+        return "raccoon"
+    elif "water deer" in top1:
+        return "waterdeer"
+    elif "roe deer" in top1:
+        return "roedeer"
+    else:
+        return "other"
+
+rows = []
+for item in data["predictions"]:
+    true_label = get_true_label(item["filepath"])
+    pred_label = get_pred_label_from_top1(item)
+
+    if true_label in target_labels:
+        rows.append({
+            "filepath": item["filepath"],
+            "true": true_label,
+            "pred": pred_label
+        })
+
+df = pd.DataFrame(rows)
+print(df.head())
+print("N =", len(df))
+
+# Draw SpeciesNet Confusion matrix 
+import json
+import os
+import pandas as pd
+from sklearn.metrics import confusion_matrix
+import matplotlib.pyplot as plt
+
+json_path = "/content/output/speciesnet_output.json"
+
+with open(json_path, "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+# 원하는 순서
+labels_6 = ["badger", "raccoondog", "boar", "roedeer", "waterdeer", "background"]
+
+def get_true_label(filepath):
+    name = os.path.basename(filepath).lower()
+    if "__bad__" in name:
+        return "badger"
+    elif "__wild__" in name:
+        return "boar"
+    elif "__raccoon__" in name:
+        return "raccoondog"
+    elif "__roe__" in name:
+        return "roedeer"
+    elif "__water__" in name:
+        return "waterdeer"
+    elif "__background__" in name:
+        return "background"
+    else:
+        return None
+
+def get_pred_label_top1_6class(item):
+    top1 = item["classifications"]["classes"][0].lower()
+
+    if "badger" in top1:
+        return "badger"
+    elif "wild boar" in top1:
+        return "boar"
+    elif ("raccoon dog" in top1) or ("northern raccoon" in top1):
+        return "raccoondog"
+    elif "roe deer" in top1:
+        return "roedeer"
+    elif "water deer" in top1:
+        return "waterdeer"
+    elif "blank" in top1:
+        return "background"
+    else:
+        return "background"
+
+rows = []
+for item in data["predictions"]:
+    true_label = get_true_label(item["filepath"])
+    if true_label is None:
+        continue
+    pred_label = get_pred_label_top1_6class(item)
+    rows.append({
+        "filepath": item["filepath"],
+        "true": true_label,
+        "pred": pred_label
+    })
+
+df = pd.DataFrame(rows)
+
+cm = confusion_matrix(df["true"], df["pred"], labels=labels_6)
+cm_df = pd.DataFrame(cm, index=labels_6, columns=labels_6)
+cm_df_swapped = cm_df.T
+cm_ratio = cm_df.div(cm_df.sum(axis=1), axis=0)
+cm_ratio_swapped = cm_ratio.T.round(3)
+
+print("Count confusion matrix (rows=Predicted, cols=True)")
+display(cm_df_swapped)
+
+print("Proportion confusion matrix (rows=Predicted, cols=True)")
+display(cm_ratio_swapped)
+
+fig, ax = plt.subplots(figsize=(8, 6))
+im = ax.imshow(cm_ratio_swapped.values, cmap="Blues", vmin=0, vmax=1)
+
+ax.set_xticks(range(len(labels_6)))
+ax.set_yticks(range(len(labels_6)))
+ax.set_xticklabels(labels_6, rotation=45, ha="right")
+ax.set_yticklabels(labels_6)
+
+for i in range(cm_ratio_swapped.shape[0]):
+    for j in range(cm_ratio_swapped.shape[1]):
+        val = cm_ratio_swapped.iloc[i, j]
+        color = "white" if val >= 0.5 else "black"
+        ax.text(j, i, f"{val:.2f}", ha="center", va="center", color=color)
+
+ax.set_xlabel("Actual")
+ax.set_ylabel("Predicted")
+# ax.set_title("SpeciesNet Confusion Matrix (%)")
+plt.colorbar(im)
+plt.tight_layout()
+plt.show()
+
+
+# Model-C grouped K-fold Cross validation 
+
+# Data fold
+
+import shutil
+from pathlib import Path
+import yaml
+
+KFOLD_ROOT = Path("/content/drive/MyDrive/Grouped_K-fold_folds")
+RF_UPLOAD_ROOT = Path("/content/drive/MyDrive/Roboflow_upload_folds")
+
+RF_UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+
+def copy_tree(src_dir: Path, dst_dir: Path):
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    for p in src_dir.glob("*"):
+        if p.is_file():
+            shutil.copy2(p, dst_dir / p.name)
+
+for fold_dir in sorted(KFOLD_ROOT.glob("fold_*")):
+    out_dir = RF_UPLOAD_ROOT / f"{fold_dir.name}_rf"
+
+    # 기존 fold의 class names 읽기
+    with open(fold_dir / "data.yaml", "r", encoding="utf-8") as f:
+        y = yaml.safe_load(f)
+
+    names = y["names"]
+
+    # train/val -> train/valid 구조로 복사
+    copy_tree(fold_dir / "images" / "train", out_dir / "train" / "images")
+    copy_tree(fold_dir / "labels" / "train", out_dir / "train" / "labels")
+    copy_tree(fold_dir / "images" / "val",   out_dir / "valid" / "images")
+    copy_tree(fold_dir / "labels" / "val",   out_dir / "valid" / "labels")
+
+    rf_yaml = {
+        "train": "train/images",
+        "val": "valid/images",
+        "names": names
+    }
+
+    with open(out_dir / "data.yaml", "w", encoding="utf-8") as f:
+        yaml.safe_dump(rf_yaml, f, allow_unicode=True, sort_keys=False)
+
+
+from pathlib import Path
+
+RF_UPLOAD_ROOT = Path("/content/drive/MyDrive/Roboflow_upload_folds")
+
+for d in sorted(RF_UPLOAD_ROOT.glob("*_rf")):
+    train_img = len(list((d / "train" / "images").glob("*")))
+    train_lbl = len(list((d / "train" / "labels").glob("*.txt")))
+    valid_img = len(list((d / "valid" / "images").glob("*")))
+    valid_lbl = len(list((d / "valid" / "labels").glob("*.txt")))
+    print(d.name)
+    print("  train images:", train_img, "train labels:", train_lbl)
+    print("  valid images:", valid_img, "valid labels:", valid_lbl)
+    print("  yaml exists:", (d / "data.yaml").exists())
+    print("-" * 50)
+
+
+# Fold-1(raw) dataset load
+!pip install roboflow
+
+from roboflow import Roboflow
+rf = Roboflow(api_key="MY_API_KEY")
+project = rf.workspace("yolo-v8-tutorial").project("fold1_raw")
+version = project.version(1)
+dataset = version.download("yolov8")
+
+# Fold-2(raw) dataset load
+!pip install roboflow
+
+from roboflow import Roboflow
+rf = Roboflow(api_key="MY_API_KEY")
+project = rf.workspace("yolo-v8-tutorial").project("fold2_raw")
+version = project.version(2)
+dataset = version.download("yolov8")
+
+# Fold-3(raw) dataset load
+!pip install roboflow
+
+from roboflow import Roboflow
+rf = Roboflow(api_key="MY_API_KEY")
+project = rf.workspace("yolo-v8-tutorial").project("fold3_raw")
+version = project.version(1)
+dataset = version.download("yolov8")
+
+# Fold-4(raw) dataset load
+!pip install roboflow
+
+from roboflow import Roboflow
+rf = Roboflow(api_key="MY_API_KEY")
+project = rf.workspace("yolo-v8-tutorial").project("fold4_raw")
+version = project.version(2)
+dataset = version.download("yolov8")
+
+# Fold-5(raw) dataset load
+!pip install roboflow
+
+from roboflow import Roboflow
+rf = Roboflow(api_key="MY_API_KEY")
+project = rf.workspace("yolo-v8-tutorial").project("fold5_raw")
+version = project.version(1)
+dataset = version.download("yolov8")
+
+!pip install ultralytics
+
+from IPython import display
+display.clear_output()
+import ultralytics
+ultralytics.checks()
+from ultralytics import YOLO
+from IPython.display import display, Image
+
+# Data train(Model-C fruped k-fold cross validation [fold 1])
+%cd {HOME}
+!yolo task=detect mode=train model=/content/yolov8x.pt data=/content/Fold1_raw-1/data.yaml epochs=300 imgsz=640 plots=True patience=50
+%cd {HOME}
+!yolo task=detect mode=val model=/content/runs/detect/train/weights/best.pt data=/content/Fold1_raw-1/data.yaml
+
+# Data train(Model-C fruped k-fold cross validation [fold 2])
+%cd {HOME}
+!yolo task=detect mode=train model=/content/yolov8x.pt data=/content/Fold2_raw-2/data.yaml epochs=300 imgsz=640 plots=True patience=50
+%cd {HOME}
+!yolo task=detect mode=val model=/content/runs/detect/train-2/weights/best.pt data=/content/Fold2_raw-2/data.yaml
+# Data train(Model-C fruped k-fold cross validation [fold 3])
+%cd {HOME}
+!yolo task=detect mode=train model=/content/yolov8x.pt data=/content/Fold3_raw-1/data.yaml epochs=300 imgsz=640 plots=True patience=50
+%cd {HOME}
+!yolo task=detect mode=val model=/content/runs/detect/train-3/weights/best.pt data=/content/Fold3_raw-1/data.yaml
+# Data train(Model-C fruped k-fold cross validation [fold 4])
+%cd {HOME}
+!yolo task=detect mode=train model=/content/yolov8x.pt data=/content/Fold4_raw-2/data.yaml epochs=300 imgsz=640 plots=True patience=50
+%cd {HOME}
+!yolo task=detect mode=val model=/content/runs/detect/train-4/weights/best.pt data=/content/Fold4_raw-2/data.yaml
+# Data train(Model-C fruped k-fold cross validation [fold 5])
+%cd {HOME}
+!yolo task=detect mode=train model=/content/yolov8x.pt data=/content/Fold5_raw-1/data.yaml epochs=300 imgsz=640 plots=True patience=50
+%cd {HOME}
+!yolo task=detect mode=val model=/content/runs/detect/train-5/weights/best.pt data=/content/Fold5_raw-1/data.yaml
+
+
+# 4th batch raw data classification
+import shutil
+shutil.copytree("/content/drive/MyDrive/WFdata_Boar,Deer(2208_2212)/WF_4P/O_151", "/content/O_1to51")
+shutil.copytree("/content/drive/MyDrive/WFdata_Boar,Deer(2208_2212)/WF_4P/background_151", "/content/Site1to51")
+shutil.copytree("/content/drive/MyDrive/WFdata_Boar,Deer(2208_2212)/WF_4P/O_52101", "/content/O_52to101")
+shutil.copytree("/content/drive/MyDrive/WFdata_Boar,Deer(2208_2212)/WF_4P/background_52101", "/content/Site51to101")
+shutil.copytree("/content/drive/MyDrive/WFdata_Boar,Deer(2208_2212)/WF_4P/species102151", "/content/O_102to151")
+shutil.copytree("/content/drive/MyDrive/WFdata_Boar,Deer(2208_2212)/WF_4P/background_102151", "/content/Site102to151")
+
+# 4th camera trap raw data
+import os
+os.mkdir("Site1to51") # 4th raw data Bulk Data Chunk 1
+os.mkdir("Site52to101") # 4th raw data Bulk Data Chunk 2
+os.mkdir("Site102to151") # 4th raw data Bulk Data Chunk 3
+
+# Merge total data (Performing Predictions by Splitting the Data Due to Large File Size)
+!mv /content/O_1to51/* /content/Site1to51 # Site 1 to 51 species data
+!mv /content/Site1to51/* /content/Site1to51 # Site 1 to 51 background data
+!mv /content/O_52to101/* /content/Site51to101 # Site 52 to 101 species data
+!mv /content/Site52to101/* /content/Site51to101 # Site 52 to 101 species data
+!mv /content/O_102to151/* /content/Site102to151 # Site 102 to 151 species data
+!mv /content/Site102to151/* /content/Site102to151 # Site 102 to 151 species data
+
+# 4th raw data prediction (Polygon - Original)
+import pandas as pd
+%cd {HOME}
+Eachs = []
+Each = !yolo task=detect mode=predict model=/content/runs/detect/train3/weights/best.pt conf=0.571 source=/content/Site1to51 save=True # iou = 0.7
+
+# 4th raw data classification results
+for i in range(len(Each)):
+  Eachs.append(Each[i])
+
+df=pd.DataFrame(Eachs)
+df.to_csv("/content/drive/MyDrive/WFresult_Boar,Deer(2208_2212)/Results/Poly_Ori_Site1to51.csv")
+
+# 4th raw data prediction (Polygon - Original)
+import pandas as pd
+%cd {HOME}
+Eachs = []
+Each = !yolo task=detect mode=predict model=/content/runs/detect/train3/weights/best.pt conf=0.571 source=/content/Site52to101 save=True # iou = 0.7
+
+# 4th raw data classification results
+for i in range(len(Each)):
+  Eachs.append(Each[i])
+
+df=pd.DataFrame(Eachs)
+df.to_csv("/content/drive/MyDrive/WFresult_Boar,Deer(2208_2212)/Results/Poly_Ori_Site52to101.csv")
+
+# 4th raw data prediction (Polygon - Original)
+import pandas as pd
+%cd {HOME}
+Eachs = []
+Each = !yolo task=detect mode=predict model=/content/runs/detect/train3/weights/best.pt conf=0.571 source=/content/Site102to151 save=True # iou = 0.7
+
+# 4th raw data classification results
+for i in range(len(Each)):
+  Eachs.append(Each[i])
+
+df=pd.DataFrame(Eachs)
+df.to_csv("/content/drive/MyDrive/WFresult_Boar,Deer(2208_2212)/Results/Poly_Ori_Site102to151.csv")
+
+# Results move
+import shutil
+# 4th Predict results
+shutil.copytree("/content/runs/detect/predict2","/content/drive/MyDrive/WFresult_Boar,Deer(2208_2212)/Results/Site1to51")
+shutil.copytree("/content/runs/detect/predict3","/content/drive/MyDrive/WFresult_Boar,Deer(2208_2212)/Results/Site52to101")
+shutil.copytree("/content/runs/detect/predict4","/content/drive/MyDrive/WFresult_Boar,Deer(2208_2212)/Results/Site102to151")
